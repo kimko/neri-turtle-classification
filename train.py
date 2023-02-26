@@ -4,11 +4,15 @@ import numpy as np
 import torch
 from torch.utils.data import Dataset, DataLoader
 from torchvision import transforms, utils
+from classifier import TurtleClassifier
+from helpers import resize_and_rotate_image
+
+DATA_DIR = "/Volumes/T7/turtles_training_data"
 
 class TurtleDataset(Dataset):
-    def __init__(self, carapace_images, non_carapace_images, transform=None):
-        self.images = carapace_images + non_carapace_images
-        self.labels = [1]*len(carapace_images) + [0]*len(non_carapace_images)
+    def __init__(self, subject_images, non_subject_images, transform=None):
+        self.images = subject_images + non_subject_images
+        self.labels = [1] * len(subject_images) + [0] * len(non_subject_images)
         self.transform = transform
 
     def __len__(self):
@@ -23,62 +27,58 @@ class TurtleDataset(Dataset):
 
         return image, label
 
-def train_model():
-    data_dir = '/Volumes/T7/turtles_training_data'
-    carapace_dir = os.path.join(data_dir, "carapace")
-    non_carapace_dir = os.path.join(data_dir, "non-carapace")
 
-    # Load carapace images
-    carapace_images = []
-    for filename in os.listdir(carapace_dir):
-        if filename.endswith(".jpg"):
-            filepath = os.path.join(carapace_dir, filename)
-            img = cv2.imread(filepath, cv2.IMREAD_GRAYSCALE)
+def load_images(current_subject, current_subject_list, a, b):
+    print(f"Loading {current_subject} training images...")
+    subject_dir = os.path.join(DATA_DIR, current_subject)
+    for filename in os.listdir(subject_dir):
+        if filename.lower().endswith(".jpg"):
+            filepath = os.path.join(subject_dir, filename)
+            img = cv2.imread(filepath, cv2.IMREAD_COLOR)
+            # img = cv2.imread(filepath, cv2.IMREAD_GRAYSCALE)
             if img is not None:
-                img = cv2.resize(img, (100, 100))
-                carapace_images.append(img)
+                img = resize_and_rotate_image(img, a, b, filename)
+                current_subject_list.append(img)
 
-    # Load non-carapace images
-    non_carapace_images = []
-    for filename in os.listdir(non_carapace_dir):
-        if filename.endswith(".jpg"):
-            filepath = os.path.join(non_carapace_dir, filename)
-            img = cv2.imread(filepath, cv2.IMREAD_GRAYSCALE)
-            if img is not None:
-                img = cv2.resize(img, (100, 100))
-                non_carapace_images.append(img)
+
+def train_model(a=512, b=384, subject="carapace"):
+    # Load training images
+    subject_images = []
+    load_images(subject, subject_images, a, b)
+    print(len(subject_images))
+
+    non_subject_images = []
+    load_images(f"non-{subject}", non_subject_images, a, b)
+    print(len(non_subject_images))
 
     # Combine images and labels
-    dataset = TurtleDataset(carapace_images, non_carapace_images, transform=transforms.ToTensor())
+    dataset = TurtleDataset(
+        subject_images, non_subject_images, transform=transforms.ToTensor()
+    )
     dataloader = DataLoader(dataset, batch_size=5, shuffle=True)
 
     # Define CNN architecture
-    cnn = torch.nn.Sequential(
-        torch.nn.Conv2d(1, 16, kernel_size=5, stride=1, padding=2),
-        torch.nn.ReLU(),
-        torch.nn.MaxPool2d(kernel_size=2, stride=2),
-        torch.nn.Conv2d(16, 32, kernel_size=5, stride=1, padding=2),
-        torch.nn.ReLU(),
-        torch.nn.MaxPool2d(kernel_size=2, stride=2),
-        torch.nn.Flatten(),
-        torch.nn.Linear(32 * 25 * 25, 128),
-        torch.nn.ReLU(),
-        torch.nn.Linear(128, 2),
-        torch.nn.Softmax(dim=1)
-    )
+    # in_channels=3 = 3 color channels (RGB)
+    # in_channels=1 = 1 color channel (grayscale)
+    model = TurtleClassifier(in_channels=3, height=128, width=96)
 
     # Define loss function and optimizer
     criterion = torch.nn.CrossEntropyLoss()
-    optimizer = torch.optim.Adam(cnn.parameters(), lr=0.001)
+    optimizer = torch.optim.Adam(model.parameters(), lr=0.0001)
+
+    # # Define learning rate scheduler
+    # scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', factor=0.1, patience=2)
 
     # Train CNN
-    num_epochs = 10
+    num_epochs = 5
     for epoch in range(num_epochs):
+        # Train model
         running_loss = 0.0
+        model.train()
         for i, data in enumerate(dataloader):
             inputs, labels = data
             optimizer.zero_grad()
-            outputs = cnn(inputs)
+            outputs = model(inputs)
             loss = criterion(outputs, labels)
             loss.backward()
             optimizer.step()
@@ -86,9 +86,17 @@ def train_model():
             running_loss += loss.item()
 
             if i % 20 == 19:
-                print(f'Epoch {epoch+1}, batch {i+1}: loss {running_loss/20}')
+                print(f"Training: Epoch {epoch+1}, batch {i+1}: loss {running_loss/20}")
                 running_loss = 0.0
 
-    print('Finished training')
+    # Adjust learning rate
+    # scheduler.step(val_loss/len(val_dataloader))
 
-train_model()
+    print(f"Finished training {subject} classifier")
+
+    # Save the trained model
+    model_path = os.path.join(DATA_DIR, f"{subject}_classifier.pt")
+    torch.save(model.state_dict(), model_path)
+
+
+train_model(a=512, b=384, subject="plastron")

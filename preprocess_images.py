@@ -49,7 +49,7 @@ def convert_heic_to_jpg(folder_path):
     register_heif_opener()
     for root, dirs, files in os.walk(folder_path):
         for file in files:
-            if file.endswith(".heic"):
+            if file.endswith(".heic") and not file.startswith('._'):
                 # Open the HEIC image and convert it to JPEG
                 heic_path = os.path.join(root, file)
                 print(heic_path)
