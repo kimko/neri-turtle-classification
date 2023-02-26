@@ -4,9 +4,10 @@ This script will pre-process the images in the directory tree.
 
 '''
 
-
 import csv
 import os
+from PIL import Image
+from pillow_heif import register_heif_opener
 
 def find_bottom_folders(root_dir):
     """
@@ -44,6 +45,20 @@ def export_folder_list(folder_list, filename):
         for turtle_id, path in folder_list:
             writer.writerow([f"{turtle_id:04}", path])
 
+def convert_heic_to_jpg(folder_path):
+    register_heif_opener()
+    for root, dirs, files in os.walk(folder_path):
+        for file in files:
+            if file.endswith(".heic"):
+                # Open the HEIC image and convert it to JPEG
+                heic_path = os.path.join(root, file)
+                print(heic_path)
+                img = Image.open(heic_path)
+                jpg_path = os.path.splitext(heic_path)[0] + ".jpg"
+                img.save(jpg_path, "JPEG")
+
+                # Delete the original HEIC image
+                os.remove(heic_path)
 
 # Run the script with the following command:
 # python preprocess_images.py /path/to/root/directory
